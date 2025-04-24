@@ -21,17 +21,24 @@ log = ''
 class HelpFormatter(argparse.RawDescriptionHelpFormatter,argparse.ArgumentDefaultsHelpFormatter):
 	pass
 
+def create_task(cfg, task_name, args=None, **kwargs):
+	input_files_for_cmd = {}
+	task_path = set_task(cfg, task_name, args=args, input_files_for_cmd=input_files_for_cmd)
+	return Task(task_path, input_files=input_files_for_cmd, **kwargs)
+
 shell_index = 1
-def set_task(cfg, task, args = None):
+def set_task(cfg, task, args = None, input_files_for_cmd=None):
 	cmd = ''
 	path = ''
 	global shell_index
+	if input_files_for_cmd is None:
+		input_files_for_cmd = {}
 	if task == 'db_stat':
-		cmd = db_stat(cfg)
+		cmd, input_files_for_cmd = db_stat(cfg)
 		path = cfg['raw_aligndir'] + '/%02d.db_stat.sh' % shell_index
 		shell_index += 1
 	elif task == 'db_split':
-		cmd = db_split(cfg)
+		cmd, input_files_for_cmd = db_split(cfg)
 		path = cfg['raw_aligndir'] + '/%02d.db_split.sh' % shell_index
 		shell_index += 1
 	elif task == 'db_local':
@@ -40,36 +47,36 @@ def set_task(cfg, task, args = None):
 		shell_index += 1
 	elif task == 'raw_align':
 		path = cfg['raw_aligndir'] + '/%02d.raw_align.sh' % shell_index
-		cmd = raw_align(cfg)
+		cmd, input_files_for_cmd = raw_align(cfg)
 		shell_index += 1
 	elif task == 'sort_align':
 		path = cfg['raw_aligndir'] + '/%02d.sort_align.sh' % shell_index
-		cmd = sort_align(cfg)
+		cmd, input_files_for_cmd = sort_align(cfg)
 		shell_index = 1
 	elif task == "seed_cns":
 		path = cfg['cns_aligndir'] + '/%02d.seed_cns.sh' % shell_index
-		cmd = seed_cns(cfg, args)
+		cmd, input_files_for_cmd = seed_cns(cfg, args)
 		shell_index += 1
 	elif task == 'split_seed':
 		shell_index = 1
 		path = cfg['cns_aligndir'] + '/%02d.split_seed.sh' % shell_index
-		cmd = split_seed(cfg)
+		cmd, input_files_for_cmd = split_seed(cfg)
 		shell_index += 1
 	elif task == 'cns_align':
 		path = cfg['cns_aligndir'] + '/%02d.cns_align.sh' % shell_index
-		cmd = cns_align(cfg, args)
+		cmd, input_files_for_cmd = cns_align(cfg, args)
 		shell_index = 1
 	elif task =='ctg_graph':
 		path = cfg['ctg_graphdir'] + '/%02d.ctg_graph.sh' % shell_index
-		cmd = ctg_graph(cfg)
+		cmd, input_files_for_cmd = ctg_graph(cfg)
 		shell_index += 1
 	elif task == 'ctg_align':
 		path = cfg['ctg_graphdir'] + '/%02d.ctg_align.sh' % shell_index
-		cmd = ctg_align(cfg, args)
+		cmd, input_files_for_cmd = ctg_align(cfg, args)
 		shell_index += 1
 	elif task == 'ctg_cns':
 		path = cfg['ctg_graphdir'] + '/%02d.ctg_cns.sh' % shell_index
-		cmd = ctg_cns(cfg, args)
+		cmd, input_files_for_cmd = ctg_cns(cfg, args)
 		shell_index = 1
 	write2file(cmd, path)
 	return path
@@ -81,7 +88,11 @@ def seed_cns(cfg, args):
 		cmd += pypath() + ' ' +  SCRIPT_PATH + '/lib/nextcorrect.py ' +  ' -f ' + d + \
 			'/01.seed_cns.input.idxs -i ' + sort_align + ' ' +  cfg['correction_options'] + \
 			' -o cns.fasta;\n'
-	return cmd
+
+		last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+		input_files_for_cmd[last_cmd_line] = sort_align
+
+	return cmd, input_files_for_cmd
 
 def split_seed(cfg):
 	def cal_cns_count(n):
@@ -92,7 +103,11 @@ def split_seed(cfg):
 	total = cal_cns_count(cfg['parallel_jobs'])
 	cmd = pypath() + ' ' + SCRIPT_PATH + '/lib/split_cns.py ' +  ' -f ' + cfg['input_fofn'] + \
 		' -l %s -c %d' % (cfg['seed_cutoff'], total)
-	return cmd
+
+	last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+	input_files_for_cmd[last_cmd_line] = cfg['input_fofn']
+
+	return cmd, input_files_for_cmd
 
 def pre_cns_seqs(cfg, infiles, out_file):
 	with open(cfg['ctg_graphdir'] + '/' + out_file, 'w') as OUT:
@@ -180,7 +195,7 @@ def get_ctg_align_output(subtasks):
 			align_results.append(filenames[0])
 		else:
 			log.error('Failed to find output file pattern for task: ' + subtask.path)
-			sys.exit(1)		
+			sys.exit(1)
 	return align_results
 
 def clean_ctg_align_output(align_results):
@@ -226,9 +241,9 @@ def pre_ctg_cns_input(outfile, ctg_align_output):
 
 def blc_genome(n, ref):
 	data = {}
-	genome_size = 0 
-	with open(ref, 'r') as IN: 
-		for line in IN: 
+	genome_size = 0
+	with open(ref, 'r') as IN:
+		for line in IN:
 			if line.startswith('>'):
 				lines = line.strip().split()
 				seq_type = lines[1].split(':')[-1]
@@ -238,13 +253,13 @@ def blc_genome(n, ref):
 				genome_size += seq_len
 
 	cmd = ''
-	count = total_len = 0 
+	count = total_len = 0
 	blocksize = int(genome_size / float(n) + 1)
 	for i in data:
 		total_len += data[i][1]
 		cmd += i + '\t' + str(count) + '\n'
 		if total_len >= blocksize:
-			total_len = 0 
+			total_len = 0
 			count += 1
 	path = ref + '.blc'
 	write2file(cmd, path)
@@ -259,7 +274,7 @@ def gather_ctg_cns_output(cfg, subtasks, seq_info):
 			ctg_result.append(filenames[0])
 		else:
 			log.error('Failed to find output file pattern for task: ' + subtask.path)
-			sys.exit(1)	
+			sys.exit(1)
 
 	i = 0
 	asm = cfg['ctg_graphdir'] + '/nd.asm.fasta'
@@ -325,7 +340,7 @@ def ctg_graph(cfg):
 		elif i == 5:
 			cmd += SCRIPT_PATH + '/bin/nextgraph -a 0 -u 1 -f %s %s;\n' % (input_seq, input_ovl)
 		elif i == 6:
-			cmd += SCRIPT_PATH + '/bin/nextgraph -a 0 -k -f %s %s;\n' % (input_seq, input_ovl)	
+			cmd += SCRIPT_PATH + '/bin/nextgraph -a 0 -k -f %s %s;\n' % (input_seq, input_ovl)
 		elif i == 7:
 			cmd += SCRIPT_PATH + '/bin/nextgraph -a 0 -I 0.1 -f %s %s;\n' % (input_seq, input_ovl)
 		elif i == 8:
@@ -339,7 +354,11 @@ def ctg_graph(cfg):
 			(randint(20, 2000), randint(0, 15), uniform(0.1, 0.7), uniform(0.1, 0.7), randint(1, 2), \
 			uniform(0.1, 0.7), uniform(1.5, 10), randint(10, 50), randint(5, 16), randint(35, 700)) + \
 			(' -A' if randint(0, 1) else '') + ' -f %s %s;\n' % (input_seq, input_ovl)
-	return cmd
+
+		last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+		input_files_for_cmd[last_cmd_line] = input_seq + ',' + input_ovl
+
+	return cmd, input_files_for_cmd
 
 def sort_align(cfg):
 	cmd = ''
@@ -347,11 +366,14 @@ def sort_align(cfg):
 	for seed_file in iglob(d + '.input.seed.*.idx'):
 		cmd += SCRIPT_PATH + '/bin/ovl_sort '  + cfg['sort_options'] +  ' -i ' + seed_file +\
 			' -o ' + os.path.basename(seed_file)[1:-3] + 'sorted.ovl '
+
 		if 'usetempdir' in cfg:
 			cmd += '-d ' + cfg['usetempdir'] + ' '
 		cmd += 'input.fofn;\n'
+		last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+		input_files_for_cmd[last_cmd_line] = seed_file + ',' + 'input.fofn' # TODO: This may not work; the for loop generates one single lined command. REVIEW
 
-	return cmd
+	return cmd, input_files_for_cmd
 
 def cns_align(cfg, cns_files):
 	cmd = ''
@@ -363,10 +385,13 @@ def cns_align(cfg, cns_files):
 			else:
 				cmd += SCRIPT_PATH + '/bin/minimap2-nd -I 6G --step 2 --dual=yes ' + cfg['minimap2_options_cns'] + ' '\
 					+ cns_files[i]  + ' ' + cns_files[j] + ' -o ' + 'cns.filt.dovt.ovl;\n'
-	return cmd
 
-def ctg_align(cfg, ref):
+		last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+		input_files_for_cmd[last_cmd_line] = cns_files[i] + ',' + cns_files[j] + ',' 'input.fofn'
 
+	return cmd, input_files_for_cmd
+
+def ctg_align(cfg, ref, input_files_for_cmd):
 	def cal_total_seed_len(infiles):
 		total = 0
 		for idx_file in infiles:
@@ -376,26 +401,32 @@ def ctg_align(cfg, ref):
 						total += int(line.split()[2])
 		return total
 
-	def get_seed_files(idx = False):
+	def get_seed_files(idx=False):
 		if cfg['input_type'] == 'corrected':
 			with open(cfg['ctg_graphdir'] + '/01.ctg_graph.input.seqs') as IN:
 				data = IN.read().strip()
-			if idx:
-				return (f + '.idx' for f in data.split("\n"))
-			else:
-				return data.split("\n")
+			return (f + '.idx' for f in data.split("\n")) if idx else data.split("\n")
 		else:
 			d = cfg['raw_aligndir'] + '/'
 			return glob(d + '.input.seed*idx') if idx else glob(d + 'input.seed*2bit')
 
 	cmd = ''
+	# Handle seed files
 	for seed_file in get_seed_files():
+		original_seed = seed_file
 		if 'usetempdir' in cfg:
 			seed_file = cfg['usetempdir'] + '/' + os.path.basename(seed_file)
-		cmd += SCRIPT_PATH + '/bin/minimap2-nd --step 3 ' + cfg['minimap2_options_map'] + ' -a -t %d %s %s|' % \
-			(cfg['_map_threads'], ref, seed_file) + SCRIPT_PATH + '/bin/bam_sort -i -@ %d -o %s.sort.bam\n' % \
-			(cfg['_map_threads'], os.path.basename(seed_file))
-	
+
+		new_cmd = SCRIPT_PATH + '/bin/minimap2-nd --step 3 ' + cfg['minimap2_options_map'] + \
+		          ' -a -t %d %s %s|' % (cfg['_map_threads'], ref, seed_file) + \
+		          SCRIPT_PATH + '/bin/bam_sort -i -@ %d -o %s.sort.bam\n' % \
+		          (cfg['_map_threads'], os.path.basename(seed_file))
+		cmd += new_cmd
+
+		last_cmd_line = new_cmd.strip().split('\n')[-1] + '\n'
+		input_files_for_cmd[last_cmd_line] = ref + ',' + seed_file
+
+	# Handle part files if needed
 	if cfg['input_type'] != 'corrected':
 		mindepth = 35
 		gs = calgs(ref)
@@ -404,15 +435,23 @@ def ctg_align(cfg, ref):
 			d = cfg['raw_aligndir'] + '/'
 			part_idx_files = glob(d + '.input.part*idx')
 			minlen = cal_minlen_from_idx(part_idx_files, len(part_idx_files), gs * mindepth - total_seed_len)
-			minlen = 2000 if minlen < 2000 else minlen
-			part_files =  glob(d + 'input.part*2bit')
+			minlen = max(minlen, 2000)
+			part_files = glob(d + 'input.part*2bit')
 			for part_file in part_files:
+				original_part = part_file
 				if 'usetempdir' in cfg:
 					part_file = cfg['usetempdir'] + '/' + os.path.basename(part_file)
-				cmd += SCRIPT_PATH + '/bin/minimap2-nd --step 3 ' + cfg['minimap2_options_map'] + ' -a -t %d --minlen %d %s %s|' % \
-					(cfg['_map_threads'], minlen, ref, part_file) + SCRIPT_PATH + '/bin/bam_sort -i -@ %d -o %s.sort.bam\n' % \
-					(cfg['_map_threads'], os.path.basename(part_file))
-	return cmd
+
+				new_cmd = SCRIPT_PATH + '/bin/minimap2-nd --step 3 ' + cfg['minimap2_options_map'] + \
+				          ' -a -t %d --minlen %d %s %s|' % (cfg['_map_threads'], minlen, ref, part_file) + \
+				          SCRIPT_PATH + '/bin/bam_sort -i -@ %d -o %s.sort.bam\n' % \
+				          (cfg['_map_threads'], os.path.basename(part_file))
+				cmd += new_cmd
+
+				last_cmd_line = new_cmd.strip().split('\n')[-1] + '\n'
+				input_files_for_cmd[last_cmd_line] = ref + ',' + part_file
+
+	return cmd, input_files_for_cmd
 
 def ctg_cns(cfg, ref):
 	cmd = ''
@@ -421,14 +460,19 @@ def ctg_cns(cfg, ref):
 		cmd += pypath() + ' ' + SCRIPT_PATH + '/lib/ctg_cns.py ' + cfg['ctg_cns_options'] + \
 			' -g ' + ref + ' -b ' + blc + ' -i ' + str(i) + ' -r ' + cfg['read_type'] +  ' -l ' + \
 			cfg['ctg_graphdir'] + '/03.ctg_cns.input.bams -o nd.asm.f.part%03d.fasta\n' % i
-	return cmd
+
+		last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+		input_files_for_cmd[last_cmd_line] = ref + ',' + blc
+
+	return cmd, input_files_for_cmd
 
 def raw_align(cfg):
 	cmd = ''
+	input_files_for_cmd = {}
 	d = cfg['raw_aligndir'] + '/'
 	k = 0
 	batch_seed_size = 6 if cfg['read_type'] == 'hifi' else 3
-	seed_files = glob(d + 'input.seed*2bit') #TODO: set global var 
+	seed_files = glob(d + 'input.seed*2bit') #TODO: set global var
 	part_files = glob(d + 'input.part*2bit')
 	for i in range(len(seed_files)):
 		seed_file = seed_files[i]
@@ -444,11 +488,16 @@ def raw_align(cfg):
 
 			cmd += SCRIPT_PATH + '/bin/minimap2-nd --step 1 --dual=yes '  + cfg['minimap2_options_raw'] + ' '\
 				 + seed_file  + ' ' + part_file + ' -o ' + os.path.basename(seed_file) + '.' +  str(k) + '.ovl;\n'
+
+			# Stores the input files for each cmd entry in a dictionary for distributed computing xfers
+			last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+			input_files_for_cmd[last_cmd_line] = seed_file + ',' + part_file
+
 			k += 1
 
 		for t in range(i, len(seed_files)):
 			part_file = seed_files[t]
-			
+
 			if 'usetempdir' in cfg:
 				part_file = cfg['usetempdir'] + '/' + os.path.basename(part_file)
 
@@ -456,15 +505,25 @@ def raw_align(cfg):
 				cmd += SCRIPT_PATH + '/bin/minimap2-nd --step 1 -I ' + str(batch_seed_size) + 'G --dual=yes ' + \
 					cfg['minimap2_options_raw'] + ' ' + seed_file  + ' ' + part_file + ' -o ' + \
 					os.path.basename(seed_file) + '.' +  str(k) + '.ovl;'
+
+				#Stores the input files for each cmd entry in a dictionary for distributed computing xfers
+				last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+				input_files_for_cmd[last_cmd_line] = seed_file + ',' + part_file
+
 				cmd += 'ln -sf ' + os.path.basename(seed_file) + '.' +  str(k) + '.ovl ' + os.path.basename(part_file) + \
 					'.' +  str(k) + '.ovl;'
 			else:
 				cmd += SCRIPT_PATH + '/bin/minimap2-nd --step 1 -I ' + str(batch_seed_size) + 'G ' + \
 					cfg['minimap2_options_raw'] + ' ' + seed_file  + ' ' + part_file + ' -o ' + \
 					os.path.basename(seed_file) + '.' +  str(k) + '.ovl;'
+
+				#Stores the input files for each cmd entry in a dictionary for distributed computing xfers
+				last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+				input_files_for_cmd[last_cmd_line] = seed_file + ',' + part_file
+
 			cmd += '\n'
 			k += 1
-	return cmd
+	return cmd, input_files_for_cmd
 
 def get_availablenodes(cfg):
 	node = ''
@@ -548,7 +607,9 @@ def db_split(cfg):
 		'-d', cfg['raw_aligndir'],
 		cfg['input_fofn']
 		])
-	return cmd
+	last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+	input_files_for_cmd[last_cmd_line] = cfg['input_fofn']
+	return cmd, input_files_for_cmd
 
 def db_stat(cfg):
 	cmd = ' '.join([SCRIPT_PATH + '/bin/seq_stat',
@@ -559,7 +620,9 @@ def db_stat(cfg):
 		'-o', cfg['raw_aligndir'] + '/input.reads.stat',
 		cfg['input_fofn']
 		])
-	return cmd
+	last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
+	input_files_for_cmd[last_cmd_line] = cfg['input_fofn']
+	return cmd, input_files_for_cmd
 
 def main(args):
 	if not args[1]:
@@ -590,7 +653,7 @@ def main(args):
 			log.info('mkdir: ' + d)
 
 	if int(cfg['seed_cutoff']) <= 0:# or cfg['read_type'] == 'hifi':
-		task = Task(set_task(cfg, 'db_stat'), dir_prefix='db_stat', job_prefix=job_prefix)
+		task = create_task(cfg, 'db_stat', dir_prefix='db_stat', job_prefix=job_prefix)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=1, job_type=cfg['job_type'], use_drmaa=cfg['use_drmaa'], \
 				submit=cfg['submit'], kill=cfg['kill'], check_alive=cfg['check_alive'], job_id_regex=cfg['job_id_regex'])
@@ -608,9 +671,9 @@ def main(args):
 		reset_cfg(cfg)
 	else:
 		log.info('options: \n' + str(cfg))
-	
+
 	if cfg['task'] in ['all', 'correct']:
-		task = Task(set_task(cfg, 'db_split'), dir_prefix='db_split',job_prefix=job_prefix)
+		task = create_task(cfg, 'db_split', dir_prefix='db_split',job_prefix=job_prefix)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=1, job_type=cfg['job_type'], use_drmaa=cfg['use_drmaa'], \
 				submit=cfg['submit'], kill=cfg['kill'], check_alive=cfg['check_alive'], job_id_regex=cfg['job_id_regex'])
@@ -627,7 +690,7 @@ def main(args):
 			log.info('skip step: db_split')
 
 		if 'usetempdir' in cfg:
-			task = Task(set_task(cfg, 'db_local'), dir_prefix='db_local', job_prefix=job_prefix, convert_path=False)
+			task = create_task(cfg, 'db_local', dir_prefix='db_local', job_prefix=job_prefix, convert_path=False)
 			if not task.is_finished():
 				task.set_run(max_parallel_job=30, job_type='local')
 				task.run.start()
@@ -642,7 +705,9 @@ def main(args):
 			else:
 				log.info('skip step: db_local')
 
-		task = Task(set_task(cfg, 'raw_align'), dir_prefix='raw_align', job_prefix=job_prefix, convert_path=False)
+		input_files = {}
+
+		task = create_task(cfg, 'raw_align', dir_prefix='raw_align', job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=cfg['parallel_jobs'], job_type = cfg['job_type'], mem='30G', \
 				cpu=cfg['_minimap2_threads'][0], use_drmaa=cfg['use_drmaa'], submit=cfg['submit'], \
@@ -666,7 +731,7 @@ def main(args):
 			log.info('skip step: raw_align')
 
 		subptasks = task.jobs
-		task = Task(set_task(cfg, 'sort_align'), dir_prefix='sort_align', job_prefix=job_prefix, convert_path=False)
+		task = create_task(cfg, 'sort_align', dir_prefix='sort_align', job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=cfg['parallel_jobs'], job_type=cfg['job_type'], mem=cfg['_sort_mem'], \
 				cpu=cfg['_sort_threads'], use_drmaa=cfg['use_drmaa'], submit=cfg['submit'], \
@@ -687,7 +752,7 @@ def main(args):
 			log.info('skip step: sort_align')
 
 		cns_input = get_sort_align_output(task.jobs)
-		task = Task(set_task(cfg, 'seed_cns', cns_input), dir_prefix='seed_cns', job_prefix=job_prefix, convert_path=False)
+		task = create_task(cfg, 'seed_cns', cns_input, dir_prefix='seed_cns', job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=cfg['pa_correction'], job_type=cfg['job_type'], cpu=cfg['_cns_threads'],\
 				use_drmaa=cfg['use_drmaa'], submit=cfg['submit'], kill=cfg['kill'], check_alive=cfg['check_alive'], \
@@ -710,7 +775,7 @@ def main(args):
 
 	if cfg['task'] in ['all', 'assemble']:
 		if cfg['input_type'] == 'corrected':
-			task = Task(set_task(cfg, 'split_seed'), dir_prefix='split_seed', job_prefix=job_prefix)
+			task = create_task(cfg, 'split_seed', dir_prefix='split_seed', job_prefix=job_prefix)
 			if not task.is_finished():
 				task.set_run(max_parallel_job=1, job_type=cfg['job_type'], use_drmaa=cfg['use_drmaa'], \
 					submit=cfg['submit'], kill=cfg['kill'], check_alive=cfg['check_alive'], job_id_regex=cfg['job_id_regex'])
@@ -735,7 +800,7 @@ def main(args):
 		else:
 			cns_output = get_cns_output(task.jobs)
 
-		task = Task(set_task(cfg, 'cns_align', cns_output), dir_prefix='cns_align', job_prefix=job_prefix, convert_path=False)
+		task = create_task(cfg, 'cns_align', args=cns_output, dir_prefix='cns_align', job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=cfg['parallel_jobs'], job_type=cfg['job_type'], mem='30G', \
 				cpu=cfg['_minimap2_threads'][1], use_drmaa=cfg['use_drmaa'], submit=cfg['submit'],\
@@ -759,7 +824,7 @@ def main(args):
 			log.info('skip step: cns_align')
 
 		subptasks = task.jobs
-		task = Task(set_task(cfg, 'ctg_graph'), dir_prefix='ctg_graph', job_prefix=job_prefix, convert_path=False)
+		task = create_task(cfg, 'ctg_graph', dir_prefix='ctg_graph', job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=cfg['parallel_jobs'], job_type = cfg['job_type'], mem='3G', cpu=1,\
 				use_drmaa=cfg['use_drmaa'], submit=cfg['submit'], kill=cfg['kill'], \
@@ -783,7 +848,7 @@ def main(args):
 			sys.exit(0)
 
 		ctg_graph_output = get_ctg_graph_output(task.jobs)
-		task = Task(set_task(cfg, 'ctg_align', ctg_graph_output), dir_prefix='ctg_align', \
+		task = create_task(cfg, 'ctg_align', args=ctg_graph_output, dir_prefix='ctg_align', \
 			job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			task.set_run(max_parallel_job=cfg['pa_correction'], job_type=cfg['job_type'], \
@@ -803,7 +868,7 @@ def main(args):
 
 		subptasks = task.jobs
 		seq_info = blc_genome(cfg['pa_correction'], ctg_graph_output)
-		task = Task(set_task(cfg, 'ctg_cns', ctg_graph_output), dir_prefix='ctg_cns', \
+		task = create_task(cfg, 'ctg_cns', args=ctg_graph_output, dir_prefix='ctg_cns', \
 			job_prefix=job_prefix, convert_path=False)
 		if not task.is_finished():
 			ctg_align_output = get_ctg_align_output(subptasks)
@@ -824,7 +889,7 @@ def main(args):
 				sys.exit(1)
 		else:
 			log.info('skip step: ctg_cns')
-		
+
 		asm, stat = gather_ctg_cns_output(cfg, task.jobs, seq_info)
 		log.info('nextDenovo finished')
 		log.info('final assembly file:')
