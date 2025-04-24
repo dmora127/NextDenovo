@@ -24,15 +24,14 @@ class HelpFormatter(argparse.RawDescriptionHelpFormatter,argparse.ArgumentDefaul
 def create_task(cfg, task_name, args=None, **kwargs):
 	input_files_for_cmd = {}
 	task_path = set_task(cfg, task_name, args=args, input_files_for_cmd=input_files_for_cmd)
-	return Task(task_path, input_files=input_files_for_cmd, **kwargs)
+	return Task(task_path, input_files_dict=input_files_for_cmd, **kwargs)
 
 shell_index = 1
 def set_task(cfg, task, args = None, input_files_for_cmd=None):
 	cmd = ''
 	path = ''
 	global shell_index
-	if input_files_for_cmd is None:
-		input_files_for_cmd = {}
+	input_files_for_cmd = {}
 	if task == 'db_stat':
 		cmd, input_files_for_cmd = db_stat(cfg)
 		path = cfg['raw_aligndir'] + '/%02d.db_stat.sh' % shell_index
@@ -82,6 +81,7 @@ def set_task(cfg, task, args = None, input_files_for_cmd=None):
 	return path
 
 def seed_cns(cfg, args):
+	input_files_for_cmd = {}
 	cmd = ''
 	d = cfg['cns_aligndir'] + '/'
 	for sort_align in args:
@@ -95,6 +95,7 @@ def seed_cns(cfg, args):
 	return cmd, input_files_for_cmd
 
 def split_seed(cfg):
+	input_files_for_cmd = {}
 	def cal_cns_count(n):
 		i = s = int(cfg['seed_cutfiles'])
 		while i * (i + 1) < 2 * int(n):
@@ -322,6 +323,7 @@ def asm_finished(cfg):
 		return False
 
 def ctg_graph(cfg):
+	input_files_for_cmd = {}
 	input_seq = cfg['ctg_graphdir'] + '/01.ctg_graph.input.seqs'
 	input_ovl = cfg['ctg_graphdir'] + '/01.ctg_graph.input.ovls'
 	cmd = SCRIPT_PATH + '/bin/nextgraph ' + cfg['nextgraph_options'] + ' -f %s %s -o nd.asm.p.%s;\n' \
@@ -361,6 +363,7 @@ def ctg_graph(cfg):
 	return cmd, input_files_for_cmd
 
 def sort_align(cfg):
+	input_files_for_cmd = {}
 	cmd = ''
 	d = cfg['raw_aligndir'] + '/'
 	for seed_file in iglob(d + '.input.seed.*.idx'):
@@ -376,6 +379,7 @@ def sort_align(cfg):
 	return cmd, input_files_for_cmd
 
 def cns_align(cfg, cns_files):
+	input_files_for_cmd = {}
 	cmd = ''
 	for i in range(len(cns_files)):
 		for j in range(i, len(cns_files)):
@@ -392,6 +396,7 @@ def cns_align(cfg, cns_files):
 	return cmd, input_files_for_cmd
 
 def ctg_align(cfg, ref, input_files_for_cmd):
+	input_files_for_cmd = {}
 	def cal_total_seed_len(infiles):
 		total = 0
 		for idx_file in infiles:
@@ -454,6 +459,7 @@ def ctg_align(cfg, ref, input_files_for_cmd):
 	return cmd, input_files_for_cmd
 
 def ctg_cns(cfg, ref):
+	input_files_for_cmd = {}
 	cmd = ''
 	blc = ref + '.blc'
 	for i in range(int(cfg['pa_correction'])):
@@ -599,6 +605,7 @@ def reset_cfg(cfg):
 		sys.exit(1)
 
 def db_split(cfg):
+	input_files_for_cmd = {}
 	cmd = ' '.join([SCRIPT_PATH + '/bin/seq_dump',
 		'-f', cfg['read_cutoff'],
 		'-s', cfg['seed_cutoff'],
@@ -612,6 +619,7 @@ def db_split(cfg):
 	return cmd, input_files_for_cmd
 
 def db_stat(cfg):
+	input_files_for_cmd = {}
 	cmd = ' '.join([SCRIPT_PATH + '/bin/seq_stat',
 		'-f', cfg['read_cutoff'],
 		'-g', cfg['genome_size'],
@@ -622,6 +630,7 @@ def db_stat(cfg):
 		])
 	last_cmd_line = cmd.strip().split('\n')[-1] + '\n'
 	input_files_for_cmd[last_cmd_line] = cfg['input_fofn']
+
 	return cmd, input_files_for_cmd
 
 def main(args):
